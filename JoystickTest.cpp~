@@ -1,0 +1,46 @@
+#include <string.h>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <stdlib.h>
+#include <math.h>
+#include <pthread.h> 
+#include "gpio.h"
+
+#define BUFLEN 512
+#define SRV_IP "192.168.7.2"
+using namespace std;
+
+int main()
+
+{	
+	cout<<"1\n";
+	
+	char buf[BUFLEN];	
+	/*
+    gpio gpio72("72");
+    gpio72.mode("72","in");
+    */
+	cout<<"2";
+	while(1)
+	{
+		char val[BUFLEN];
+		FILE * fs;
+		string path="/sys/devices/ocp.3/helper.12/AIN0";  
+		char * Fpath;
+		Fpath=&path[0];;
+		fs=fopen(Fpath,"r");
+		fgets(val,BUFLEN,fs);
+		//buf[0]=gpio72.read("72").at(0);
+		//cout<<"buf: "<<buf<<"val:"<<val<<" test\n";
+		cout<<"val"<<val;
+		fs->close();
+	}
+	
+}

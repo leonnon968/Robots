@@ -1,0 +1,721 @@
+#include <string.h>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include "pwm.h"
+#include "SPI.h"
+#include <stdlib.h>
+#include <math.h>
+#include <pthread.h> 
+
+#define BUFLEN 2000000
+#define SRV_IP "192.168.7.2"
+using namespace std;
+
+int main()
+{
+	//pwm
+	pwm *p = new pwm(); 
+	p->set_polarity();
+	p->set_period(); 
+	//spi
+	SPI s;
+	s.open(1,0);	
+	//s->setMode(0);
+	s.setSpeed(50000);
+	char wbuf[BUFLEN];
+	char rbuf[1];
+	//uint32_t wbuf2[200000];
+	wbuf[0] = 0xFF;
+	char tmpbuf[BUFLEN]; 
+	int motor_is_true = 0; 
+	int LED_is_true = 0; 
+	int sensor_LED = 0;
+	int sensor_motor = 0; 
+
+    struct sockaddr_in my_addr, cli_addr;
+    int sockfd, i; 
+    socklen_t slen=sizeof(cli_addr);
+    char buf[BUFLEN];	
+	  
+
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
+      cout << "socket" << endl;
+    else
+      printf("Server : Socket() successful\n");
+
+    bzero(&my_addr, sizeof(my_addr));
+    my_addr.sin_family = AF_INET;
+    my_addr.sin_port = htons(45678);
+    my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(sockfd, (struct sockaddr* ) &my_addr, sizeof(my_addr))==-1)
+      cout << "bind" << endl;
+    else
+      printf("Server : bind() successful\n");
+
+	
+
+    while(1)
+    {
+	sendto(sockfd, "hello", BUFLEN, 0, (struct sockaddr*)&cli_addr, sizeof(cli_addr));
+        if (recvfrom(sockfd, buf, BUFLEN, 0, (struct sockaddr*)&cli_addr, &slen/*sizeof(cli_addr)*/)==-1)
+            cout << "recvfrom()" << endl;;
+        printf("Received packet from %s:%d\nData: %s\n\n",
+               inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port), buf);
+	
+		if(buf[0] == 'f')
+		{
+			p->write("0"); 
+			LED_is_true = 0; 
+			motor_is_true = 1;
+			sensor_motor = 0;
+			sensor_LED=0;
+		}
+		else if(buf[0] == 'o')
+		{
+			p->write("500000"); 
+			LED_is_true = 0; 
+			motor_is_true = 1;
+			sensor_motor = 0;
+			sensor_LED=0;
+		}
+		else if (motor_is_true)
+		{
+			LED_is_true = 0; 
+			sensor_motor = 0;
+			sensor_LED=0;
+			p->write(buf);
+		}
+		if(buf[0] == 's'){
+			LED_is_true = 0; 
+			motor_is_true = 0;
+			sensor_motor = 1; 
+			sensor_LED=0;
+		}
+		else if(buf[0] == 'd')
+		{
+			LED_is_true = 0; 
+			motor_is_true = 0;
+			sensor_motor = 0; 
+			sensor_LED = 1; 
+		}
+		while(sensor_LED)
+		{
+			char val[BUFLEN];
+			FILE * fs;
+			string path="/sys/devices/ocp.3/helper.13/AIN0";  
+			char * Fpath;
+			Fpath=&path[0];;
+			fs=fopen(Fpath,"r");
+			fgets(val,BUFLEN,fs);
+			if(sendto(sockfd, val, 2000, 0, (struct sockaddr*)&cli_addr, sizeof(cli_addr))==-1)
+				perror("sendto error");
+
+			int color = atoi(val)*.142; 
+			//sprintf(buf, "%d", color);
+			wbuf[0] = color;  
+			cout<<"SENSOR VALUE: "<<val<<endl; 
+			usleep(20000);
+			 s.xfer1(wbuf,rbuf,1);
+			if(color<2)
+			{
+			   cout<<"Exiting..."<<endl;
+			   sensor_LED=0;
+			}
+			cout9<<wbuf<<endl;
+			
+			//buf = color; 
+		}
+		while(sensor_motor){
+			sensor_LED=0;
+			char val[BUFLEN];
+			FILE * fs;
+			string path="/sys/devices/ocp.3/helper.13/AIN0";  
+			char * Fpath;
+			Fpath=&path[0];;
+			fs=fopen(Fpath,"r");
+			fgets(val,BUFLEN,fs);
+			if (sendto(sockfd, val, 2000, 0, (struct sockaddr*)&cli_addr, sizeof(cli_addr)) == -1)
+				perror("sendto error");;
+			int motorspeed = atoi(val)*281; 
+			usleep(20000);
+			if(motorspeed<70000)
+			  sensor_motor=0;
+			string tmp;  
+			sprintf(val, "%d", motorspeed);
+			//cout<<"SENSOR VALUE: "<<val<<endl; 
+			p->write(val);
+			fclose(fs);
+		}
+		if(buf[0] == 'l'){ 
+			LED_is_true = 1; 
+			sensor_LED=0;
+			sensor_motor = 0;
+			motor_is_true = 0; 
+			//wbuf[0] = 0xFF;
+			//cout << "xfer something in l" << endl;
+			rbuf[0] = 0x00; 
+			s.xfer1(tmpbuf, rbuf, 1);
+		}
+		else if(buf[0] == 'i'){ 
+			LED_is_true = 1;
+			sensor_LED=0; 
+			motor_is_true = 0; 
+			sensor_motor = 0;
+ 			wbuf[0] = 0x00;
+			//cout << "xfer something in i" << endl;
+			rbuf[0] =  0x00; 
+			s.xfer1(wbuf, rbuf, 1);
+		}
+		//RGB = (R*65536)+(G*256)+B , (when R is RED, G is GREEN and B is BLUE)
+		else if (LED_is_true){// receive red info
+			//read read info after 'r'
+			//recvfrom(sockfd, buf, BUFLEN, 0, (struct sockaddr*)&cli_addr, &slen);
+			//change first three bits for red
+			/*wbuf[0] = buf[0];
+			wbuf[1] = buf[1];
+			wbuf[2] = buf[2];*/
+			motor_is_true = 0; 
+			sensor_motor = 0;
+			sensor_LED=0;	   
+			rbuf[0] =  0x00; 
+			if(strcmp(buf, "0\0")==0)
+			{
+			wbuf[0] = 0; 
+			s.xfer1(wbuf, rbuf, 1);
+			tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "1\0")==0)
+			{
+			  wbuf[0] = 157;
+			  s.xfer1(wbuf, rbuf, 1);
+			  tmpbuf[0] = wbuf[0];			
+			}
+			else if(strcmp(buf, "2\0")==0)
+			{
+			  wbuf[0] = 187;
+			  s.xfer1(wbuf, rbuf, 1);
+			  tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "3\0")==0)
+			{
+			  wbuf[0] = 189; 
+			  s.xfer1(wbuf, rbuf, 1);
+			  tmpbuf[0] = wbuf[0];			
+			}
+			else if(strcmp(buf, "4\0")==0)
+			{
+			  wbuf[0] = 173; 
+			  s.xfer1(wbuf, rbuf, 1); 
+			  tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "5\0")==0)
+			{
+			  wbuf[0] = 141; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+			  tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "6\0")==0)
+			{
+			  wbuf[0] = 57; 
+			  s.xfer1(wbuf, rbuf, 1); 
+			  tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "7\0")==0)
+			{
+			  wbuf[0] = 59; 
+			  s.xfer1(wbuf, rbuf, 1);	
+			  tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "8\0")==0)
+			{
+			  wbuf[0] = 63; 
+			  s.xfer1(wbuf, rbuf, 1); 
+		      tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "9\0")==0)
+			{
+			  wbuf[0] = 191; 
+			  s.xfer1(wbuf, rbuf, 1); 
+			  tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "10\0")==0)
+			{
+			  	wbuf[0] = 93;
+				s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "11\0")==0)
+			{
+			  wbuf[0] = 95;
+			  s.xfer1(wbuf, rbuf, 1);		
+				tmpbuf[0] = wbuf[0];	
+			}
+			else if(strcmp(buf, "12\0")==0)
+			{
+			  wbuf[0] = 155;
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "13\0")==0)
+			{
+			  wbuf[0] = 171; 
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "14\0")==0)
+			{
+			  wbuf[0] = 175; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "15\0")==0)
+			{
+			  wbuf[0] = 159; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+			else if(strcmp(buf, "16\0")==0)
+			{
+			  wbuf[0] = 11; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "17\0")==0)
+			{
+			  wbuf[0] = 47; 
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "18\0")==0)
+			{
+			  wbuf[0] = 139; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "19\0")==0)
+			{
+			  wbuf[0] = 15; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "20\0")==0)
+			{
+			  wbuf[0] = 143;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "21\0")==0)
+			{
+			  	wbuf[0] = 163;
+				s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}
+			else if(strcmp(buf, "22\0")==0)
+			{
+			  wbuf[0] = 167;
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "23\0")==0)
+			{
+			  wbuf[0] = 179;
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "24\0")==0)
+			{
+			  wbuf[0] = 183; 
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "25\0")==0)
+			{
+			  wbuf[0] = 51; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "26\0")==0)
+			{
+			  wbuf[0] = 55; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+			else if(strcmp(buf, "27\0")==0)
+			{
+			  wbuf[0] = 147; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "28\0")==0)
+			{
+			  wbuf[0] = 131; 
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "29\0")==0)
+			{
+			  wbuf[0] = 135; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "30\0")==0)
+			{
+			  wbuf[0] = 115; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "31\0")==0)
+			{
+			  wbuf[0] = 119;
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0];   
+			}
+			else if(strcmp(buf, "32\0")==0)
+			{
+			  wbuf[0] = 87; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "33\0")==0)
+			{
+			  wbuf[0] = 99;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}	
+			else if(strcmp(buf, "34\0")==0)
+			{
+			  wbuf[0] = 89; 
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0]; 	
+			}
+		    else if(strcmp(buf, "35\0")==0)
+			{
+			  wbuf[0] = 103;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}
+			else if(strcmp(buf, "36\0")==0)
+			{
+			  wbuf[0] = 67; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "37\0")==0)
+			{
+			  wbuf[0] = 71;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "38\0")==0)
+			{
+			  wbuf[0] = 83; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "39\0")==0)
+			{
+			  wbuf[0] = 79;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}	
+			else if(strcmp(buf, "40\0")==0)
+			{
+			  wbuf[0] = 75; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "41\0")==0)
+			{
+			  wbuf[0] = 199;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}
+			else if(strcmp(buf, "42\0")==0)
+			{
+			  wbuf[0] = 211;  
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "43\0")==0)
+			{
+			  wbuf[0] = 215;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "44\0")==0)
+			{
+			  wbuf[0] = 207;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "45\0")==0)
+			{
+			  wbuf[0] = 203; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "46\0")==0)
+			{
+			  wbuf[0] = 243;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "47\0")==0)
+			{
+			  wbuf[0] = 230; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "48\0")==0)
+			{
+			  wbuf[0] = 247;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}	
+			else if(strcmp(buf, "49\0")==0)
+			{
+			  wbuf[0] = 227; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "50\0")==0)
+			{
+			  wbuf[0] = 239;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "51\0")==0)
+			{
+			  wbuf[0] = 117;  
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0]; 	
+			}
+		    else if(strcmp(buf, "52\0")==0)
+			{
+			  wbuf[0] = 113;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}	
+			else if(strcmp(buf, "53\0")==0)
+			{
+			  wbuf[0] = 193; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+			else if(strcmp(buf, "54\0")==0)
+			{
+			  wbuf[0] = 209; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "55\0")==0)
+			{
+			  wbuf[0] = 205; 
+			  s.xfer1(wbuf, rbuf, 1);	
+				tmpbuf[0] = wbuf[0];		
+			}
+			else if(strcmp(buf, "56\0")==0)
+			{
+			  wbuf[0] = 213; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "57\0")==0)
+			{
+			  wbuf[0] = 225; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "58\0")==0)
+			{
+			  wbuf[0] = 241;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "59\0")==0)
+			{
+			  wbuf[0] = 245; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "60\0")==0)
+			{
+			  wbuf[0] = 217;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}	
+			else if(strcmp(buf, "61\0")==0)
+			{
+			  wbuf[0] = 221; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "62\0")==0)
+			{
+			  wbuf[0] = 219;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}
+			else if(strcmp(buf, "63\0")==0)
+			{
+			  wbuf[0] = 233; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "64\0")==0)
+			{
+			  wbuf[0] = 237;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}
+			else if(strcmp(buf, "65\0")==0)
+			{
+			  wbuf[0] = 105; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "66\0")==0)
+			{
+			  wbuf[0] = 109;
+			  s.xfer1(wbuf, rbuf, 1);   
+				tmpbuf[0] = wbuf[0];
+			}	
+			else if(strcmp(buf, "67\0")==0)
+			{
+			  wbuf[0] = 121; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "68\0")==0)
+			{
+			  wbuf[0] = 125;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "69\0")==0)
+			{
+			  wbuf[0] = 123;  
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "70\0")==0)
+			{
+			  wbuf[0] = 249;
+			  s.xfer1(wbuf, rbuf, 1);
+				tmpbuf[0] = wbuf[0];   
+			}
+			else if(strcmp(buf, "71\0")==0)
+			{
+			  wbuf[0] = 253;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}
+			else if(strcmp(buf, "72\0")==0)
+			{
+			  wbuf[0] = 252; 
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "73\0")==0)
+			{
+			  wbuf[0] = 251;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "74\0")==0)
+			{
+			  wbuf[0] = 254; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "75\0")==0)
+			{
+			  wbuf[0] = 235;
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];  
+			}	
+			else if(strcmp(buf, "76\0")==0)
+			{
+			  wbuf[0] = 111; 
+			  s.xfer1(wbuf, rbuf, 1); 	
+				tmpbuf[0] = wbuf[0];
+			}
+		    else if(strcmp(buf, "77\0")==0)
+			{
+			  wbuf[0] = 107;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "78\0")==0)
+			{
+			  wbuf[0] = 223;  
+			  s.xfer1(wbuf, rbuf, 1); 
+				tmpbuf[0] = wbuf[0];	
+			}
+		    else if(strcmp(buf, "79\0")==0)
+			{
+			  wbuf[0] = 255;
+			  s.xfer1(wbuf, rbuf, 1);  
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "129\0")==0)
+			{
+			 wbuf[0] = 128; 
+			 s.xfer1(wbuf, rbuf, 1); 
+			 tmpbuf[0]= wbuf[0]; 
+			}
+			else if(strcmp(buf, "145\0")==0)
+			{
+				wbuf[0] = 144; 
+				s.xfer1(wbuf,rbuf,1); 
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "161\0")==0)
+			{
+				wbuf[0] = 160; 
+				s.xfer1(wbuf,rbuf,1); 
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "165\0")==0)
+			{
+				wbuf[0] = 160; 
+				s.xfer1(wbuf,rbuf,1); 
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "176\0")==0 || strcmp(buf,"177\0")==0)
+			{
+				wbuf[0] = 175; 
+				s.xfer1(wbuf,rbuf,1); 
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else if(strcmp(buf, "181\0")==0)
+			{
+				wbuf[0] = 180; 
+				s.xfer1(wbuf,rbuf,1); 
+				tmpbuf[0] = wbuf[0]; 
+			}
+			else
+			{
+			  int val = atoi(buf);
+			  wbuf[0] = val; 
+			  if(val%32==0)
+				wbuf[0]=tmpbuf[0];  
+			  s.xfer1(wbuf,rbuf,1);
+			}	
+		}
+ 	}
+    close(sockfd);
+	return 0;
+}
+
+
+
+

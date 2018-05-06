@@ -1,0 +1,92 @@
+#include <string.h>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <stdlib.h>
+#include <math.h>
+#include <pthread.h> 
+#include "gpio.h"
+
+#define BUFLEN 512
+#define SRV_IP "192.168.7.2"
+using namespace std;
+
+int main()
+{
+	    gpio gpio72("72"),gpio73("73"),gpio74("74"),gpio69("69");
+	    gpio72.mode("72","in");
+		gpio73.mode("73","in");
+		gpio74.mode("74","in");
+		gpio69.mode("69","in");
+	
+	    struct sockaddr_in my_addr, cli_addr;
+	    int sockfd, i; 
+	    socklen_t slen=sizeof(cli_addr);
+	    char buf[BUFLEN];	
+		  
+
+	    if ((sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
+	      cout << "socket" << endl;
+	    else
+	      printf("Server : Socket() successful\n");
+
+	    bzero(&my_addr, sizeof(my_addr));
+	    my_addr.sin_family = AF_INET;
+	    my_addr.sin_port = htons(45678);
+	    my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	    if (bind(sockfd, (struct sockaddr* ) &my_addr, sizeof(my_addr))==-1)
+	      cout << "bind" << endl;
+	    else
+	      printf("Server : bind() successful\n");
+
+	    
+	   
+
+	    while(1)
+	    {
+		if (recvfrom(sockfd, buf, BUFLEN, 0, (struct sockaddr*)&cli_addr, &slen/*sizeof(cli_addr)*/)==-1)
+		    cout << "recvfrom()" << endl;;
+		printf("Received packet from %s:%d\nData: %s\n\n",
+		       inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port), buf);
+	
+		
+		
+			while(1)
+			{
+				/*
+				buf[0]=gpio72.read("72").at(0);
+				buf[1]=gpio73.read("73").at(0);
+				buf[2]=gpio74.read("74").at(0);
+				buf[3]=gpio69.read("69").at(0);
+				buf[4] = '\0';
+				*/
+				char val[BUFLEN];
+				FILE * fs;
+				string path="/sys/devices/ocp.3/helper.12/AIN0";  
+				char * Fpath;
+				Fpath=&path[0];;
+				fs=fopen(Fpath,"r");
+				fgets(val,BUFLEN,fs);
+				cout<<"buf: "<<buf<<" test\n";
+				if(sendto(sockfd, val, strlen(val), 0, (struct sockaddr*)&cli_addr, sizeof(cli_addr))==-1)
+					perror("sendto error");
+				fclose(fs);
+				
+			}
+		
+		
+	 	}
+	    close(sockfd);
+		return 0;
+	}
+
+
+
+

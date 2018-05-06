@@ -1,0 +1,78 @@
+#include "pwm.h"
+
+
+using namespace std;
+
+	pwm::pwm()
+	{
+		/*
+		FILE * fs;
+		//fstream fs;
+		portnumber=number;
+		char* numbers=&number[0];
+		fs = fopen("/sys/class/gpio/export","w");
+		fputs(numbers,fs);
+		fclose(fs);
+		*/
+
+	}
+
+	void pwm:: set_polarity(){
+	FILE * fs;
+	string path="/sys/devices/ocp.3/pwm_test_P9_16.12/polarity";  	
+	char * moded,*Fpath;
+	Fpath=&path[0];
+	fs=fopen(Fpath,"w");
+	fputs("0",fs);
+	fclose(fs);	  
+    }
+
+	void pwm:: set_period(){
+	FILE * fs;
+	string path="/sys/devices/ocp.3/pwm_test_P9_16.12/period";  	
+	char * moded,*Fpath;
+	Fpath=&path[0];
+	fs=fopen(Fpath,"w");
+	fputs("500000",fs);
+	fclose(fs);	  
+    }
+
+	/*string pwm:: read(string port_number){
+	char val[100];
+	FILE * fs;
+	string path="/sys/class/gpio/gpio";   
+	path.append(port_number);
+	path.append("/value");
+	char * Fpath;
+	Fpath=&path[0];;
+	fs=fopen(Fpath,"r");
+	fgets(val,100,fs);
+	fclose(fs);
+	return val;
+	}*/
+
+	void pwm::write(string duty_val){
+	FILE * fs;
+	string path="/sys/devices/ocp.3/pwm_test_P9_16.12/duty";   
+	char * Fpath,*value;
+	Fpath=&path[0];
+	value=&duty_val[0];
+	fs=fopen(Fpath,"w");
+	fputs(value,fs);
+	fclose(fs);
+	}
+
+	pwm::~pwm()
+	{
+		/*
+		FILE * fs;
+		//fstream fs;
+		char* numbers=&portnumber[0];
+		fs = fopen("/sys/class/gpio/unexport","w");
+		fputs(numbers,fs);
+		fclose(fs);
+		*/
+	}
+
+
+
